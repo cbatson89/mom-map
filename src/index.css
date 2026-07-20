@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global reset — consolidated from index.html and the per-branch <style> tags
+   that App used to render on both mobile and desktop. */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+/* Custom scrollbar. The old app rendered different rules per branch:
+   the mobile branch hid scrollbars, the desktop branch showed a 4px
+   bubblegum thumb. useIsMobile() switches branches at 768px, so these
+   media queries reproduce that split exactly. */
+@media (max-width: 767px) {
+  ::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) {
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #eac2d3; /* bubblegum */
+    border-radius: 4px;
+  }
+}
+
+/* Focus states (previously duplicated in both <style> tags). */
+button:focus {
+  outline: none;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: #ef7266 !important; /* watermelon */
+}
