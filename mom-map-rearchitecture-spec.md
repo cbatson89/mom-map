@@ -190,3 +190,59 @@ Run this as four separate Claude Code sessions/prompts, in order, not one big pa
 - [ ] Manually flipping that row's `status` to `'approved'` in Supabase makes it appear on next reload.
 - [ ] Submitting with a bad/empty address shows an inline error and does not create a database row.
 - [ ] `npm run build` succeeds with no new console errors.
+
+### Phase 5 — Hover popover on map pins
+
+**Goal:** hovering a pin on the map shows a small popover with the spot's name, address, and description, right next to the pin. Clicking a pin keeps its current behavior (opens the full `SpotCard` detail sheet/card) — this is an additional quick-preview interaction, not a replacement.
+
+**Depends on:** Phase 1 (so this lives cleanly inside `MapView.jsx`, respecting the map abstraction from goal #6). Doesn't require Supabase — can be built any time after Phase 1, independent of Phases 2–4.
+
+**Current behavior (verified by inspection):** there is no hover interaction on map pins today. Hovering a pin does nothing visually. Only clicking a sidebar list item highlights that row (`isSelected` background tint in `SpotListItem`) — pins themselves have no hover state.
+
+**Design:**
+- Desktop only. Hover has no real equivalent on touch devices, so on mobile the existing tap-to-open-`SpotCard` behavior is unchanged and no popover is added.
+- Add `hoveredSpotId` state local to `MapView.jsx` (this is purely visual and map-scoped, so it shouldn't leak into `App.jsx` or be persisted anywhere).
+- On `onMouseEnter` of a `<Marker>`, set `hoveredSpotId`; on `onMouseLeave`, clear it (small debounce/delay optional to avoid flicker when moving between adjacent pins, but not required).
+- Render a `<Popup>` from `react-map-gl`, anchored to the hovered spot's `lng`/`lat`, containing just: spot name (bold), address (secondary text), and description (1–2 lines, truncated with ellipsis if long). No chips, tags, hours, or directions button — that's what the full `SpotCard` on click is for.
+- The popover must not intercept the click that opens `SpotCard` — hovering shows the preview, clicking still does what it does today.
+- Style using the Tailwind tokens from Phase 2 if that phase is already done; otherwise fall back to the existing `BRAND` object's inline styles temporarily and note that it should be migrated to Tailwind if/when Phase 2 runs after this.
+
+> Add a hover popover to map pins in `MapView.jsx`. On `onMouseEnter` of a `<Marker>`, show a `react-map-gl` `<Popup>` anchored to that spot's `lng`/`lat` containing the spot's name, address, and description (truncate description to ~2 lines). Clear it on `onMouseLeave`. This is desktop-only — do not change any mobile (touch) behavior. Do not change what happens on click — clicking a pin should still open the existing `SpotCard` detail view exactly as it does today; the hover popover is a separate, additional quick-preview layer. Keep this state (`hoveredSpotId`) local to `MapView.jsx` — don't lift it into `App.jsx` or any other component. Style it using the Tailwind design tokens from `tailwind.config.js` if Phase 2 has already run in this repo; otherwise use the existing `BRAND` constants for now. Confirm hovering a pin shows the popover, moving the mouse away hides it, and clicking still opens the full `SpotCard` unchanged.
+
+**Phase 5 checklist:**
+- [ ] Hovering any pin on desktop shows a popover with name, address, and description next to that pin.
+- [ ] Moving the mouse off the pin hides the popover.
+- [ ] Clicking a pin still opens the existing full `SpotCard` exactly as before — unchanged.
+- [ ] No change to mobile/touch behavior.
+- [ ] `hoveredSpotId` state lives only inside `MapView.jsx`.
+- [ ] `npm run build` succeeds with no new console errors.
+
+### Phase 6 — Email notification on new submission (Resend + Supabase Edge Function)
+
+**Goal:** whenever a new spot is submitted (a `pending` row lands in the `spots` table), you get an email so you know to log into Supabase and review it.
+
+**Depends on:** Phase 3 (the `spots` table with a `status` column must exist) and ideally Phase 4 (so submissions are actually reachable through the app's UI to test end-to-end). Cannot be built before Phase 3.
+
+**Design:**
+- Trigger: a **Supabase Database Webhook** on the `spots` table, firing on `INSERT`, **scoped to `status = 'pending'`**. This scoping matters: the Phase 3 seed script inserts 39 rows with `status = 'approved'` directly — if the webhook fired on every insert unconditionally, re-running or re-seeding would blast out 39 emails. Filtering the webhook to only fire when `status = 'pending'` means it only ever fires for genuine new submissions (since the seed script and any manual approvals never insert new rows with `status = 'pending'` — that only happens through `submitSpot()`).
+- The webhook calls a **Supabase Edge Function** (e.g. `notify-new-submission`), which receives the new row's data and sends an email via **Resend**.
+- Resend setup: use Resend's default `onboarding@resend.dev` sender — this works without verifying a custom domain as long as the email is sent *to* the Resend account owner's own verified email address, which is exactly this use case (you notifying yourself). No domain verification needed to start; if you later want a branded "from" address (e.g. `notifications@30amommap.com`), that requires verifying a domain in Resend, but isn't necessary for this feature to work.
+- Email content: subject like "New spot submitted: {name}", body with the spot's name, address, description, category, and `submitted_by` (if provided), plus a direct link to the Supabase project's table editor so you can jump straight to reviewing it.
+- Secrets: `RESEND_API_KEY` and `NOTIFICATION_EMAIL` (the address to send to — defaults to your own email) should be set as Supabase Edge Function secrets (`supabase secrets set`), never committed to the repo or exposed to the client.
+- Security: the Edge Function should validate that the incoming request is actually from Supabase's webhook (via the webhook signing secret Supabase provides), not a publicly-callable open endpoint that anyone could hit to spam your email.
+- This is entirely server-side — no changes needed to `SubmitForm` or any client code. The email fires regardless of what UI triggered the insert.
+
+> Set up an email notification for new spot submissions. This depends on the `spots` table already existing in Supabase (from an earlier phase) with a `status` column.
+>
+> 1. Write a Supabase Edge Function (e.g. `supabase/functions/notify-new-submission/index.ts`) that receives a Supabase Database Webhook payload for an `INSERT` on the `spots` table, and sends an email via Resend's API to a `NOTIFICATION_EMAIL` address using the `RESEND_API_KEY` secret. Use Resend's default `onboarding@resend.dev` sender (no domain verification needed since we're sending to the account owner's own address). Email subject: "New spot submitted: {name}". Body: name, address, description, category, `submitted_by` (if present), and a link to the Supabase project's table editor.
+> 2. Validate the webhook request is genuinely from Supabase (using the webhook signing secret) before processing it, so the function can't be spammed by an arbitrary public request.
+> 3. Give me the exact steps to configure the Database Webhook in the Supabase dashboard: trigger on `INSERT` to the `spots` table, **scoped to `status = 'pending'`** — this is important, because the Phase 3 seed script inserts 39 rows with `status = 'approved'` and must NOT trigger this webhook.
+> 4. Tell me exactly what to run to set the `RESEND_API_KEY` and `NOTIFICATION_EMAIL` secrets via the Supabase CLI, and what to sign up for at resend.com if I don't have an account yet.
+> 5. No changes needed to any client-side code (`SubmitForm`, `submitSpot()`, etc.) — this is entirely a server-side/database trigger. Confirm this by testing: submit a new spot through the app, and confirm an email arrives without touching the frontend.
+
+**Phase 6 checklist:**
+- [ ] Submitting a new spot through the app (Phase 4's flow) results in an email arriving at the configured address within a minute or two.
+- [ ] Re-running the Phase 3 seed script (or otherwise inserting rows with `status = 'approved'`) does **not** trigger an email.
+- [ ] The email contains the spot's name, address, description, and `submitted_by` if provided, plus a working link to the Supabase table editor.
+- [ ] `RESEND_API_KEY` and `NOTIFICATION_EMAIL` are stored as Edge Function secrets, not committed to the repo.
+- [ ] The Edge Function rejects requests that don't carry a valid Supabase webhook signature.
