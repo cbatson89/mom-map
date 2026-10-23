@@ -6,15 +6,17 @@ const inputCls = "w-full px-3.5 py-[11px] rounded-field border-[1.5px] border-bu
 const labelCls = "block text-[10px] font-bold text-driftwood uppercase tracking-[0.08em] mb-1.5";
 
 export default function SubmitForm({ onSubmit, onClose }) {
-  const [form, setForm] = useState({ name: "", category: "park", address: "", description: "", ageRange: "", free: true, hours: "", bathrooms: false, parking: false, stroller: false, shade: false, submittedBy: "" });
+  const [form, setForm] = useState({ name: "", category: "park", locationMode: "address", address: "", coordinates: "", description: "", ageRange: "", free: true, hours: "", bathrooms: false, parking: false, stroller: false, shade: false, submittedBy: "" });
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const handleSend = async () => {
     setError(null);
-    if (!form.name.trim() || !form.description.trim() || !form.address.trim()) {
-      setError("Please fill in the required fields: name, address, and description.");
+    const usingCoords = form.locationMode === "coords";
+    const location = usingCoords ? form.coordinates : form.address;
+    if (!form.name.trim() || !form.description.trim() || !location.trim()) {
+      setError(`Please fill in the required fields: name, ${usingCoords ? "GPS coordinates" : "address"}, and description.`);
       return;
     }
     setSubmitting(true);
@@ -23,7 +25,11 @@ export default function SubmitForm({ onSubmit, onClose }) {
       onSubmit(); // parent shows the success toast and closes the sheet
     } catch (e) {
       if (e.code === "GEOCODE_FAILED") {
-        setError("We couldn't find that address — try adding more detail");
+        setError("We couldn't find that address — try adding more detail, or switch to GPS");
+      } else if (e.code === "BAD_COORDINATES") {
+        setError("Enter coordinates as latitude, longitude — e.g. 30.3243, -86.1514");
+      } else if (e.code === "OUT_OF_AREA") {
+        setError("Those coordinates aren't on 30A — double-check the numbers");
       } else {
         setError("Something went wrong sending your spot. Please try again.");
       }
@@ -47,7 +53,30 @@ export default function SubmitForm({ onSubmit, onClose }) {
         <div className="flex flex-col gap-3.5">
           <div><label className={labelCls}>Spot Name *</label><input className={inputCls} value={form.name} onChange={e => set("name", e.target.value)} placeholder="e.g. Seaside Splash Pad" /></div>
           <div><label className={labelCls}>Category *</label><select className={inputCls} value={form.category} onChange={e => set("category", e.target.value)}>{CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}</select></div>
-          <div><label className={labelCls}>Address *</label><input className={inputCls} value={form.address} onChange={e => set("address", e.target.value)} placeholder="e.g. 810 J D Miller Rd, Santa Rosa Beach" /></div>
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className={labelCls.replace("mb-1.5", "")}>{form.locationMode === "coords" ? "GPS Coordinates *" : "Address *"}</label>
+              {/* No street address (e.g. a beach access)? Switch to pasting coordinates. */}
+              <div className="flex gap-1">
+                {[{ k: "address", l: "Address" }, { k: "coords", l: "GPS" }].map(({ k, l }) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => set("locationMode", k)}
+                    className={`px-2.5 py-[3px] rounded-pill text-[11px] font-semibold border-[1.5px] cursor-pointer ${form.locationMode === k ? "border-kellyGreen bg-kellyGreen/[0.094] text-kellyGreen" : "border-bubblegum bg-transparent text-driftwood"}`}
+                  >{l}</button>
+                ))}
+              </div>
+            </div>
+            {form.locationMode === "coords" ? (
+              <>
+                <input className={inputCls} value={form.coordinates} onChange={e => set("coordinates", e.target.value)} placeholder="e.g. 30.3243, -86.1514" inputMode="decimal" />
+                <div className="text-[11px] text-sandstone mt-1">In Google Maps, press and hold the spot, then copy the numbers that appear.</div>
+              </>
+            ) : (
+              <input className={inputCls} value={form.address} onChange={e => set("address", e.target.value)} placeholder="e.g. 810 J D Miller Rd, Santa Rosa Beach" />
+            )}
+          </div>
           <div><label className={labelCls}>Description *</label><textarea className={`${inputCls} min-h-[80px] resize-y`} value={form.description} onChange={e => set("description", e.target.value)} placeholder="What's great about it? Any tips for moms?" /></div>
           <div className="grid grid-cols-2 gap-2.5">
             <div><label className={labelCls}>Age Range</label><input className={inputCls} value={form.ageRange} onChange={e => set("ageRange", e.target.value)} placeholder="e.g. 2–8" /></div>

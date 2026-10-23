@@ -1,5 +1,6 @@
 import { supabase, hasSupabaseConfig } from "./supabase";
 import { SPOTS } from "../data/spots.seed";
+import { inServiceArea } from "../data/serviceArea";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -72,16 +73,79 @@ export async function geocodeAddress(address) {
   }
 }
 
+// Parses a pasted "lat, lng" pair (the format Google/Apple Maps copy out), e.g.
+// "30.3243, -86.1514". Also accepts space separation. If the numbers only make
+// sense swapped (someone typed lng first), they're swapped back. Returns
+// { lat, lng } or null if it isn't two numbers.
+export function parseCoordinates(text) {
+  const parts = (text || "").trim().split(/[\s,]+/).filter(Boolean);
+  if (parts.length !== 2) return null;
+  const [a, b] = parts.map(Number);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  if (!inServiceArea({ lat: a, lng: b }) && inServiceArea({ lat: b, lng: a })) {
+    return { lat: b, lng: a };
+  }
+  return { lat: a, lng: b };
+}
+
+// Nearest street address or place for a coordinate, as a short label like
+// "Near 5999 W County Highway 30a, Santa Rosa Beach" — so GPS-only spots still
+// show something readable in the card. Returns null on no result / any error.
+async function reverseGeocode({ lat, lng }) {
+  try {
+    const url =
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json` +
+      `?access_token=${MAPBOX_TOKEN}&types=address,poi,place&limit=1`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const feature = (await res.json())?.features?.[0];
+    if (!feature) return null;
+    const street = feature.address ? `${feature.address} ${feature.text}` : feature.text;
+    const town = feature.context?.find(c => c.id.startsWith("place."))?.text;
+    return `Near ${town && town !== street ? `${street}, ${town}` : street}`;
+  } catch {
+    return null;
+  }
+}
+
+// Resolves the form's location to coordinates plus the address text to store.
+// Address mode geocodes the typed address; GPS mode takes the pasted coordinates
+// as-is and labels them with the nearest address.
+async function resolveLocation(form) {
+  if (form.locationMode === "coords") {
+    const coords = parseCoordinates(form.coordinates);
+    if (!coords) {
+      const err = new Error("Couldn't read those coordinates");
+      err.code = "BAD_COORDINATES";
+      throw err;
+    }
+    if (!inServiceArea(coords)) {
+      const err = new Error("Coordinates are outside the 30A area");
+      err.code = "OUT_OF_AREA";
+      throw err;
+    }
+    const label = await reverseGeocode(coords);
+    return { coords, address: label ?? `${coords.lat}, ${coords.lng}` };
+  }
+  const coords = await geocodeAddress(form.address);
+  if (!coords) {
+    const err = new Error("We couldn't geocode that address");
+    err.code = "GEOCODE_FAILED";
+    throw err;
+  }
+  return { coords, address: form.address };
+}
+
 // camelCase form (app) -> snake_case row (Postgres). status is intentionally
 // omitted so the column default ('pending') applies — the RLS insert policy
 // also forces pending, so a submitter can't self-approve.
-function formToRow(form, coords) {
+function formToRow(form, { coords, address }) {
   return {
     name: form.name,
     category: form.category,
     lat: coords.lat,
     lng: coords.lng,
-    address: form.address,
+    address,
     description: form.description,
     age_range: form.ageRange || null,
     free: form.free,
@@ -96,24 +160,20 @@ function formToRow(form, coords) {
   };
 }
 
-// Submits a new spot. Geocodes the typed address FIRST (fixing the old bug that
-// assigned random coordinates); if geocoding yields nothing, throws GEOCODE_FAILED
-// BEFORE any DB write, so nothing bad ever reaches the database. On success inserts
+// Submits a new spot. Resolves the location FIRST (geocoding the typed address —
+// fixing the old bug that assigned random coordinates — or validating pasted GPS
+// coordinates); if that fails it throws GEOCODE_FAILED / BAD_COORDINATES /
+// OUT_OF_AREA BEFORE any DB write, so nothing bad ever reaches the database. On success inserts
 // a pending row. No .select() on the insert: RLS hides non-approved rows, so a
 // returning-select would come back empty and misfire.
 export async function submitSpot(form) {
-  const coords = await geocodeAddress(form.address);
-  if (!coords) {
-    const err = new Error("We couldn't geocode that address");
-    err.code = "GEOCODE_FAILED";
-    throw err;
-  }
+  const location = await resolveLocation(form);
   if (!hasSupabaseConfig) {
     const err = new Error("Supabase is not configured");
     err.code = "NO_BACKEND";
     throw err;
   }
-  const { error } = await supabase.from("spots").insert(formToRow(form, coords));
+  const { error } = await supabase.from("spots").insert(formToRow(form, location));
   if (error) throw error;
   return true;
 }

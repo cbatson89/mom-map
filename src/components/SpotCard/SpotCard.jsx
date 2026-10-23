@@ -9,7 +9,9 @@ export default function SpotCard({ spot, onClose }) {
     spot.shade     && "🌳 Shade",
   ].filter(Boolean);
 
-  const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(spot.address)}`;
+  // Route to the pin itself, not the address text — GPS-submitted spots (e.g. a
+  // beach access) only have an approximate "Near …" address.
+  const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${spot.lat},${spot.lng}`;
 
   return (
     <div className="font-body">
