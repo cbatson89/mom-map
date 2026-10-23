@@ -47,3 +47,18 @@ textarea:focus,
 select:focus {
   border-color: #ef7266 !important; /* watermelon */
 }
+
+/* Map pin hover popover (MapView). Mapbox renders the popup's inner markup,
+   so its default white box is restyled here with the design tokens. The popup
+   ignores the pointer so it never steals hover from the pin or blocks clicks. */
+.spot-popover {
+  pointer-events: none;
+}
+
+.spot-popover .mapboxgl-popup-content {
+  @apply bg-cream rounded-field shadow-pill px-3.5 py-3 font-body;
+}
+
+.spot-popover .mapboxgl-popup-tip {
+  border-top-color: theme("colors.cream");
+}
