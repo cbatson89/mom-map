@@ -1,9 +1,34 @@
-import { forwardRef, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import Map, { Marker, NavigationControl, Popup } from "react-map-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import CategoryPin from "./CategoryPin";
+import SpotPreviewCard from "./SpotPreviewCard";
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
+
+// Grace period before the hover card closes, so the mouse can travel from the
+// pin onto the card (to reach "Copy address") without it disappearing.
+const HOVER_CLOSE_DELAY_MS = 200;
+const GAP = 6;
+
+// Popup offsets per anchor so the card clears the pin (36px wide, 1.3x tall;
+// 48px when selected). The pin's tip sits on the coordinate, so its body is above it.
+// Mapbox picks whichever anchor fits on screen.
+function popupOffsets(selected) {
+  const w = selected ? 48 : 36;
+  const h = w * 1.3;
+  const side = w / 2 + GAP;
+  return {
+    bottom: [0, -(h + GAP)],
+    top: [0, GAP],
+    left: [side, -h / 2],
+    right: [-side, -h / 2],
+    "top-left": [side, -h / 2],
+    "top-right": [-side, -h / 2],
+    "bottom-left": [side, -h / 2],
+    "bottom-right": [-side, -h / 2],
+  };
+}
 
 // MapView is the ONLY place that touches Mapbox-specific APIs (mapboxAccessToken,
 // mapStyle strings, NavigationControl, the imperative flyTo method, etc.). Anything
@@ -14,6 +39,15 @@ const MapView = forwardRef(function MapView({ spots, selectedSpotId, isMobile, o
   // Desktop-only hover preview; purely visual, so it stays local to the map.
   const [hoveredSpotId, setHoveredSpotId] = useState(null);
   const hoveredSpot = isMobile ? null : spots.find(s => s.id === hoveredSpotId);
+  const closeTimer = useRef(null);
+
+  const cancelClose = () => clearTimeout(closeTimer.current);
+  const openHover = (id) => { cancelClose(); setHoveredSpotId(id); };
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimer.current = setTimeout(() => setHoveredSpotId(null), HOVER_CLOSE_DELAY_MS);
+  };
+  useEffect(() => cancelClose, []);
 
   const flyToSpot = (spot, { offset = 0 } = {}) => {
     if (mapRef.current) {
@@ -24,6 +58,9 @@ const MapView = forwardRef(function MapView({ spots, selectedSpotId, isMobile, o
   useImperativeHandle(ref, () => ({ flyToSpot }), []);
 
   const handleMarkerClick = (spot) => {
+    // The full SpotCard is opening, so the preview would just duplicate it.
+    cancelClose();
+    setHoveredSpotId(null);
     onSelectSpot?.(spot);
     flyToSpot(spot, { offset: isMobile ? 0.03 : 0.01 });
   };
@@ -40,8 +77,8 @@ const MapView = forwardRef(function MapView({ spots, selectedSpotId, isMobile, o
       {spots.map(spot => (
         <Marker key={spot.id} longitude={spot.lng} latitude={spot.lat} anchor="bottom" onClick={e => { e.originalEvent.stopPropagation(); handleMarkerClick(spot); }}>
           <div
-            onMouseEnter={isMobile ? undefined : () => setHoveredSpotId(spot.id)}
-            onMouseLeave={isMobile ? undefined : () => setHoveredSpotId(null)}
+            onMouseEnter={isMobile ? undefined : () => openHover(spot.id)}
+            onMouseLeave={isMobile ? undefined : scheduleClose}
           >
             <CategoryPin category={spot.category} selected={selectedSpotId === spot.id} />
           </div>
@@ -51,17 +88,15 @@ const MapView = forwardRef(function MapView({ spots, selectedSpotId, isMobile, o
         <Popup
           longitude={hoveredSpot.lng}
           latitude={hoveredSpot.lat}
-          anchor="bottom"
-          // Clear the pin (36px wide, 1.3x tall; 48px when selected) plus a small gap.
-          offset={(selectedSpotId === hoveredSpot.id ? 48 : 36) * 1.3 + 6}
+          offset={popupOffsets(selectedSpotId === hoveredSpot.id)}
           closeButton={false}
           closeOnClick={false}
-          maxWidth="260px"
+          maxWidth="none"
           className="spot-popover"
         >
-          <div className="font-display text-[14px] font-bold text-driftwood leading-[1.2]">{hoveredSpot.name}</div>
-          <div className="text-[11px] text-sandstone mt-[3px]">{hoveredSpot.address}</div>
-          <p className="text-[12px] text-cocoa leading-[1.5] mt-1.5 line-clamp-2">{hoveredSpot.description}</p>
+          <div onMouseEnter={cancelClose} onMouseLeave={scheduleClose}>
+            <SpotPreviewCard key={hoveredSpot.id} spot={hoveredSpot} />
+          </div>
         </Popup>
       )}
     </Map>

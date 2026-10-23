@@ -48,17 +48,42 @@ select:focus {
   border-color: #ef7266 !important; /* watermelon */
 }
 
-/* Map pin hover popover (MapView). Mapbox renders the popup's inner markup,
-   so its default white box is restyled here with the design tokens. The popup
-   ignores the pointer so it never steals hover from the pin or blocks clicks. */
+/* Map pin hover card (MapView + SpotPreviewCard). Mapbox renders the popup's
+   wrapper markup, so its default white box is restyled here. The card itself
+   draws the background; the tip is tinted to match whichever edge it touches. */
 .spot-popover {
-  pointer-events: none;
+  z-index: 20;
 }
 
 .spot-popover .mapboxgl-popup-content {
-  @apply bg-cream rounded-field shadow-pill px-3.5 py-3 font-body;
+  @apply p-0 rounded-card shadow-card overflow-hidden bg-cream;
 }
 
-.spot-popover .mapboxgl-popup-tip {
-  border-top-color: theme("colors.cream");
+.spot-popover.mapboxgl-popup-anchor-bottom .mapboxgl-popup-tip {
+  border-top-color: theme("colors.sand"); /* footer band */
+}
+
+.spot-popover.mapboxgl-popup-anchor-top .mapboxgl-popup-tip {
+  border-bottom-color: theme("colors.butter"); /* middle of the top stripe */
+}
+
+.spot-popover.mapboxgl-popup-anchor-left .mapboxgl-popup-tip {
+  border-right-color: theme("colors.cream");
+}
+
+.spot-popover.mapboxgl-popup-anchor-right .mapboxgl-popup-tip {
+  border-left-color: theme("colors.cream");
+}
+
+.spot-popover.mapboxgl-popup-anchor-bottom-left .mapboxgl-popup-tip,
+.spot-popover.mapboxgl-popup-anchor-bottom-right .mapboxgl-popup-tip {
+  border-top-color: theme("colors.sand");
+}
+
+.spot-popover.mapboxgl-popup-anchor-top-left .mapboxgl-popup-tip {
+  border-bottom-color: theme("colors.watermelon"); /* left end of the top stripe */
+}
+
+.spot-popover.mapboxgl-popup-anchor-top-right .mapboxgl-popup-tip {
+  border-bottom-color: theme("colors.kellyGreen"); /* right end of the top stripe */
 }
