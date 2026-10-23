@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "seed": "node scripts/seed-spots.js"
+    "seed": "node scripts/seed-spots.js",
+    "audit": "node scripts/audit-spots.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",
